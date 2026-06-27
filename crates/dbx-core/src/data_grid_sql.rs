@@ -858,6 +858,13 @@ pub fn format_grid_sql_literal(
         let escaped = text.replace('\\', "\\\\").replace('\'', "''");
         return format!("ST_GeomFromText('{}')", escaped);
     }
+    if is_oracle_temporal_literal_database(database_type) {
+        if let Some(literal) =
+            format_oracle_temporal_literal(&text, column_info.map(|column| column.data_type.as_str()))
+        {
+            return literal;
+        }
+    }
     let literal_text = if database_type == Some(DatabaseType::Tdengine) {
         format_tdengine_timestamp_literal_text(&text)
     } else if is_mysql_datetime_literal_database(database_type)
@@ -872,6 +879,65 @@ pub fn format_grid_sql_literal(
         format!("N{escaped}")
     } else {
         escaped
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OracleTemporalKind {
+    Date,
+    Timestamp,
+    TimestampWithTimeZone,
+}
+
+fn is_oracle_temporal_literal_database(database_type: Option<DatabaseType>) -> bool {
+    matches!(database_type, Some(DatabaseType::Oracle | DatabaseType::OceanbaseOracle))
+}
+
+fn format_oracle_temporal_literal(text: &str, data_type: Option<&str>) -> Option<String> {
+    let kind = oracle_temporal_column_kind(data_type?)?;
+    let parts = regex_like_rfc3339(text)?;
+    let fraction = parts.fraction.unwrap_or_default();
+    let datetime = format!("{} {}{}", parts.date, parts.time, fraction);
+    match kind {
+        OracleTemporalKind::Date => Some(format!("TO_DATE('{} {}', 'YYYY-MM-DD HH24:MI:SS')", parts.date, parts.time)),
+        OracleTemporalKind::Timestamp => {
+            let mask = oracle_timestamp_format_mask(datetime.contains('.'));
+            Some(format!("TO_TIMESTAMP('{datetime}', '{mask}')"))
+        }
+        OracleTemporalKind::TimestampWithTimeZone => {
+            let zone = oracle_timezone_suffix(&parts.zone);
+            let mask = oracle_timestamp_format_mask(datetime.contains('.'));
+            Some(format!("TO_TIMESTAMP_TZ('{datetime} {zone}', '{mask} TZH:TZM')"))
+        }
+    }
+}
+
+fn oracle_temporal_column_kind(data_type: &str) -> Option<OracleTemporalKind> {
+    let lower = data_type.trim().to_ascii_lowercase();
+    let base = lower.split(['(', ' ']).next().unwrap_or("");
+    match base {
+        "date" => Some(OracleTemporalKind::Date),
+        "timestamp" if lower.contains("with time zone") || lower.contains("with local time zone") => {
+            Some(OracleTemporalKind::TimestampWithTimeZone)
+        }
+        "timestamp" => Some(OracleTemporalKind::Timestamp),
+        _ => None,
+    }
+}
+
+fn oracle_timestamp_format_mask(has_fraction: bool) -> &'static str {
+    if has_fraction {
+        "YYYY-MM-DD HH24:MI:SS.FF"
+    } else {
+        "YYYY-MM-DD HH24:MI:SS"
+    }
+}
+
+fn oracle_timezone_suffix(zone: &str) -> String {
+    if zone.eq_ignore_ascii_case("z") {
+        "+00:00".to_string()
+    } else {
+        zone.to_string()
     }
 }
 
@@ -994,6 +1060,7 @@ struct Rfc3339Parts {
     date: String,
     time: String,
     fraction: Option<String>,
+    zone: String,
 }
 
 fn regex_like_rfc3339(text: &str) -> Option<Rfc3339Parts> {
@@ -1021,7 +1088,7 @@ fn regex_like_rfc3339(text: &str) -> Option<Rfc3339Parts> {
         (None, rest)
     };
     if zone == "Z" || zone == "z" || is_timezone_offset(zone) {
-        Some(Rfc3339Parts { date: date.to_string(), time: time.to_string(), fraction })
+        Some(Rfc3339Parts { date: date.to_string(), time: time.to_string(), fraction, zone: zone.to_string() })
     } else {
         None
     }
@@ -1735,6 +1802,70 @@ mod tests {
         assert_eq!(
             format_grid_sql_literal(&json!("2026-05-12T00:00:00.123456Z"), Some(DatabaseType::Mysql), None),
             "'2026-05-12 00:00:00.123456'"
+        );
+    }
+
+    #[test]
+    fn formats_oracle_temporal_literals_without_nls_parsing() {
+        let timestamp = column("created_at", "TIMESTAMP(6)", true, None);
+        let timestamp_tz = column("recorded_at", "TIMESTAMP(6) WITH TIME ZONE", true, None);
+        let timestamp_ltz = column("local_recorded_at", "TIMESTAMP(6) WITH LOCAL TIME ZONE", true, None);
+        let date = column("event_day", "DATE", true, None);
+        let text = column("raw_text", "VARCHAR2(64)", true, None);
+
+        assert_eq!(
+            format_grid_sql_literal(&json!("2022-08-25T09:58:43Z"), Some(DatabaseType::Oracle), Some(&timestamp)),
+            "TO_TIMESTAMP('2022-08-25 09:58:43', 'YYYY-MM-DD HH24:MI:SS')"
+        );
+        assert_eq!(
+            format_grid_sql_literal(
+                &json!("2022-08-25T09:58:43.123456+08:00"),
+                Some(DatabaseType::Oracle),
+                Some(&timestamp_tz)
+            ),
+            "TO_TIMESTAMP_TZ('2022-08-25 09:58:43.123456 +08:00', 'YYYY-MM-DD HH24:MI:SS.FF TZH:TZM')"
+        );
+        assert_eq!(
+            format_grid_sql_literal(&json!("2022-08-25T09:58:43Z"), Some(DatabaseType::Oracle), Some(&timestamp_ltz)),
+            "TO_TIMESTAMP_TZ('2022-08-25 09:58:43 +00:00', 'YYYY-MM-DD HH24:MI:SS TZH:TZM')"
+        );
+        assert_eq!(
+            format_grid_sql_literal(&json!("2022-08-25T09:58:43Z"), Some(DatabaseType::Oracle), Some(&date)),
+            "TO_DATE('2022-08-25 09:58:43', 'YYYY-MM-DD HH24:MI:SS')"
+        );
+        assert_eq!(
+            format_grid_sql_literal(&json!("2022-08-25T09:58:43Z"), Some(DatabaseType::Oracle), Some(&text)),
+            "'2022-08-25T09:58:43Z'"
+        );
+    }
+
+    #[test]
+    fn prepares_oracle_timestamp_insert_from_iso_grid_value() {
+        let result = prepare_data_grid_save(DataGridSaveStatementOptions {
+            database_type: Some(DatabaseType::Oracle),
+            table_meta: DataGridTableMeta {
+                schema: Some("APP".to_string()),
+                table_name: "EVENTS".to_string(),
+                primary_keys: vec!["ID".to_string()],
+                columns: Some(vec![
+                    column("ID", "NUMBER", false, None),
+                    column("CREATED_AT", "TIMESTAMP(6)", true, None),
+                ]),
+            },
+            columns: vec!["ID".to_string(), "CREATED_AT".to_string()],
+            source_columns: None,
+            rows: vec![],
+            dirty_rows: vec![],
+            deleted_rows: vec![],
+            new_rows: vec![vec![json!(1), json!("2022-08-25T09:58:43Z")]],
+        });
+
+        assert_eq!(result.validation_error, None);
+        assert_eq!(
+            result.statements,
+            vec![
+                "INSERT INTO \"APP\".\"EVENTS\" (\"ID\", \"CREATED_AT\") VALUES (1, TO_TIMESTAMP('2022-08-25 09:58:43', 'YYYY-MM-DD HH24:MI:SS'));"
+            ]
         );
     }
 
