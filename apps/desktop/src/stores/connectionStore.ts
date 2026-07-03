@@ -1865,16 +1865,12 @@ export const useConnectionStore = defineStore("connection", () => {
     node.isLoading = true;
     try {
       const collections = await api.mongoListCollections(connectionId, database);
-      const bucketInfos = collections.filter((c) => c.kind === "bucket" && c.bucketName).map((c) => c.bucketName as string);
-      const collectionNames = collections.filter((c) => c.kind !== "bucket").map((c) => c.name);
-      const bucketChildren = sortSidebarNames(Array.from(new Set(bucketInfos))).map((bucketName) => ({
-        id: `${nodeId}:__bucket:${bucketName}`,
-        label: bucketName,
-        type: "mongo-bucket" as const,
-        connectionId,
-        database,
-        isExpanded: false,
-      }));
+      const bucketNames = new Set(collections.filter((c) => c.kind === "bucket" && c.bucketName).map((c) => c.bucketName as string));
+      const hiddenCollectionNames = new Set([...bucketNames].flatMap((bucketName) => [`${bucketName}.files`, `${bucketName}.chunks`]));
+      const collectionNames = collections
+        .filter((c) => c.kind !== "bucket")
+        .map((c) => c.name)
+        .filter((name) => !hiddenCollectionNames.has(name));
       const collectionChildren = sortSidebarNames(collectionNames).map((col) => ({
         id: `${nodeId}:${col}`,
         label: col,
@@ -1884,19 +1880,14 @@ export const useConnectionStore = defineStore("connection", () => {
         isExpanded: false,
       }));
       const children = [
-        ...(bucketChildren.length
-          ? [
-              {
-                id: `${nodeId}:__buckets`,
-                label: i18n.global.t("tree.buckets"),
-                type: "mongo-buckets" as const,
-                connectionId,
-                database,
-                isExpanded: true,
-                children: bucketChildren,
-              },
-            ]
-          : []),
+        {
+          id: `${nodeId}:__gridfs`,
+          label: i18n.global.t("tree.gridfs"),
+          type: "mongo-gridfs" as const,
+          connectionId,
+          database,
+          isExpanded: false,
+        },
         ...collectionChildren,
       ];
       setChildren(node, children);
@@ -2669,7 +2660,7 @@ export const useConnectionStore = defineStore("connection", () => {
       await loadMongoCollections(node.connectionId, node.database);
     } else if (node.type === "mongo-collection" && node.connectionId && node.database) {
       await loadTableGroups(node.connectionId, node.database, node.label, node.schema, node.id);
-    } else if (node.type === "mongo-buckets") {
+    } else if (node.type === "mongo-gridfs") {
       node.isExpanded = true;
     } else if (node.type === "database" && node.connectionId && hasTreeNodeDatabaseContext(node)) {
       const config = getConfig(node.connectionId);

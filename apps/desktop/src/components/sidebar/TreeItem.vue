@@ -77,7 +77,7 @@ import { clearActiveTableReferencePayload, createTableReferencePayload, createTa
 import { editableRowIdentifierColumns, usesSyntheticRowIdKey } from "@/lib/tableEditing";
 import { tableOpenPageLimit } from "@/lib/tableOpenPageLimit";
 import { supportsDatabaseCreation, supportsDatabaseSearch, supportsFieldLineage, supportsObjectBrowserTreeNode, supportsSchemaDiagram, supportsSqlFileExecution, supportsTableImport, supportsTableTruncate, supportsTableStructureEditing, usesTreeSchemaMode } from "@/lib/databaseCapabilities";
-import { copyNameForTreeNode, objectSourceKindForTreeNode, sidebarSelectionCopyAction, treeNodeRowAction, treeNodeRowDoubleClickAction } from "@/lib/treeNodeClick";
+import { copyNameForTreeNode, isDocumentBrowserTreeNode, objectSourceKindForTreeNode, sidebarSelectionCopyAction, treeNodeRowAction, treeNodeRowDoubleClickAction } from "@/lib/treeNodeClick";
 import { formatSqlInsert } from "@/lib/exportFormats";
 import { joinExportedDdls } from "@/lib/ddlExport";
 import { fetchTableDataForExport } from "@/lib/tableDataExport";
@@ -316,6 +316,7 @@ function getIconInfo(node: TreeNode): { icon: any; colorClass: string } | null {
       return { icon: Database, colorClass: "text-blue-500" };
     case "mongo-db":
       return { icon: Database, colorClass: "text-yellow-500" };
+    case "mongo-gridfs":
     case "mongo-buckets":
       return { icon: Archive, colorClass: "text-amber-500" };
     case "mongo-bucket":
@@ -651,11 +652,15 @@ function runRowClickAction() {
     void openObjectBrowser();
     return;
   }
+  if (node.type === "mongo-gridfs") {
+    openMongoTreeData(node);
+    return;
+  }
   const action = treeNodeRowAction(node.type, canExpand.value, settingsStore.editorSettings.sidebarActivation);
   if (action === "open-data") {
     openData();
-  } else if (node.type === "mongo-collection") {
-    openMongoCollectionData(node);
+  } else if (isDocumentBrowserTreeNode(node.type)) {
+    openMongoTreeData(node);
   } else if (node.type === "procedure" || node.type === "function" || node.type === "sequence" || node.type === "package" || node.type === "package-body") {
     void viewObjectSource();
   } else if (action === "toggle") {
@@ -919,15 +924,19 @@ function onDoubleClick() {
     void viewObjectSource();
   } else if (action === "open-saved-sql") {
     openSavedSqlFile();
-  } else if (action === "toggle" && (props.node.type === "mongo-collection" || props.node.type === "mongo-bucket")) {
-    openMongoCollectionData(props.node);
+  } else if (action === "toggle" && (props.node.type === "mongo-gridfs" || isDocumentBrowserTreeNode(props.node.type))) {
+    openMongoTreeData(props.node);
   } else if (action === "toggle") {
     toggle();
   }
 }
 
-function openMongoCollectionData(node: TreeNode) {
+function openMongoTreeData(node: TreeNode) {
   if (!node.connectionId || !node.database) return;
+  if (node.type === "mongo-gridfs") {
+    queryStore.openMongoGridFs(node.connectionId, node.database);
+    return;
+  }
   const tabTitle = `${node.database}.${node.label}`;
   if (node.type === "mongo-bucket") {
     queryStore.openMongoBucket(node.connectionId, node.database, node.label);

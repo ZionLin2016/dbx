@@ -514,6 +514,7 @@ export type TreeNodeType =
   | "etcd-root"
   | "zookeeper-root"
   | "mongo-db"
+  | "mongo-gridfs"
   | "mongo-buckets"
   | "mongo-bucket"
   | "mongo-collection"
@@ -639,7 +640,7 @@ export interface QueryTab {
   executionId?: string;
   isExplaining?: boolean;
   explainExecutionId?: string;
-  mode: "data" | "query" | "redis" | "redis-dashboard" | "mongo" | "mongo-bucket" | "vector" | "etcd" | "zookeeper" | "mq" | "nacos" | "objects" | "structure" | "users";
+  mode: "data" | "query" | "redis" | "redis-dashboard" | "mongo" | "mongo-gridfs" | "mongo-bucket" | "vector" | "etcd" | "zookeeper" | "mq" | "nacos" | "objects" | "structure" | "users";
   mqTenant?: string;
   mqInitialTab?: "topics";
   nacosNamespace?: string;

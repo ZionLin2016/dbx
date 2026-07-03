@@ -19,11 +19,11 @@ test("reorders cached MongoDB collections alphabetically", () => {
   );
 });
 
-test("keeps MongoDB bucket group before collections", () => {
+test("keeps MongoDB GridFS entry before collections", () => {
   const parent: Pick<TreeNode, "type"> = { type: "mongo-db" };
   const children: TreeNode[] = [
     { id: "c:db:movies", label: "movies", type: "mongo-collection" },
-    { id: "c:db:__buckets", label: "Buckets", type: "mongo-buckets" },
+    { id: "c:db:__gridfs", label: "GridFS", type: "mongo-gridfs" as TreeNode["type"] },
     { id: "c:db:comments", label: "comments", type: "mongo-collection" },
   ];
 
@@ -32,7 +32,7 @@ test("keeps MongoDB bucket group before collections", () => {
   assert.deepEqual(
     sorted.map((child) => [child.type, child.label]),
     [
-      ["mongo-buckets", "Buckets"],
+      ["mongo-gridfs", "GridFS"],
       ["mongo-collection", "comments"],
       ["mongo-collection", "movies"],
     ],

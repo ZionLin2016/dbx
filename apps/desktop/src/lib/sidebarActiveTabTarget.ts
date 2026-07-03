@@ -16,10 +16,9 @@ export type ActiveTabSidebarTarget =
       collectionName: string;
     }
   | {
-      type: "mongo-bucket";
+      type: "mongo-gridfs";
       connectionId: string;
       database: string;
-      bucketName: string;
     }
   | {
       type: "vector-collection";
@@ -82,13 +81,18 @@ export function activeTabSidebarTarget(tab: QueryTab | undefined | null): Active
   }
 
   if (tab.mode === "mongo-bucket") {
-    const bucketName = tab.mongoBucket?.bucketName || tab.sql || tab.title.split(".").pop() || tab.title;
-    if (!bucketName) return null;
     return {
-      type: "mongo-bucket",
+      type: "mongo-gridfs",
       connectionId: tab.connectionId,
       database: tab.database,
-      bucketName,
+    };
+  }
+
+  if (tab.mode === "mongo-gridfs") {
+    return {
+      type: "mongo-gridfs",
+      connectionId: tab.connectionId,
+      database: tab.database,
     };
   }
 
@@ -148,8 +152,8 @@ export function matchesTarget(node: TreeNode, target: ActiveTabSidebarTarget): b
     return node.type === "mongo-collection" && node.connectionId === target.connectionId && node.database === target.database && node.label === target.collectionName;
   }
 
-  if (target.type === "mongo-bucket") {
-    return node.type === "mongo-bucket" && node.connectionId === target.connectionId && node.database === target.database && node.label === target.bucketName;
+  if (target.type === "mongo-gridfs") {
+    return node.type === "mongo-gridfs" && node.connectionId === target.connectionId && node.database === target.database;
   }
 
   if (target.type === "vector-collection") {
