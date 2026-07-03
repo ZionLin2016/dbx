@@ -449,6 +449,8 @@ async fn main() {
         .route("/document-store/list-databases", post(routes::document_store::list_databases))
         .route("/document-store/list-collections", post(routes::document_store::list_collections))
         .route("/document-store/find-documents", post(routes::document_store::find_documents))
+        .route("/document-store/list-gridfs-files", post(routes::document_store::list_gridfs_files))
+        .route("/document-store/download-gridfs-file", post(routes::document_store::download_gridfs_file))
         .route("/document-store/insert-document", post(routes::document_store::insert_document))
         .route("/document-store/update-document", post(routes::document_store::update_document))
         .route("/document-store/delete-document", post(routes::document_store::delete_document))

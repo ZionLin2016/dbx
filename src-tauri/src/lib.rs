@@ -942,6 +942,8 @@ pub fn run() {
             commands::document_cmd::document_list_databases,
             commands::document_cmd::document_list_collections,
             commands::document_cmd::document_find_documents,
+            commands::document_cmd::document_list_gridfs_files,
+            commands::document_cmd::document_download_gridfs_file,
             commands::mongo_cmd::mongo_find_documents,
             commands::mongo_cmd::mongo_server_version,
             commands::mongo_cmd::mongo_aggregate_documents,

@@ -99,6 +99,23 @@ pub struct DocumentDeleteRequest {
     pub routing: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GridFsBucketRequest {
+    pub connection_id: String,
+    pub database: String,
+    pub bucket: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GridFsDownloadRequest {
+    pub connection_id: String,
+    pub database: String,
+    pub bucket: String,
+    pub file_id: String,
+}
+
 pub async fn list_databases(
     State(state): State<Arc<WebState>>,
     Json(req): Json<DocumentListDatabasesRequest>,
@@ -188,6 +205,33 @@ pub async fn delete_document(
         &req.collection,
         &req.id,
         req.routing.as_deref(),
+    )
+    .await
+    .map_err(AppError)?;
+    Ok(Json(result))
+}
+
+pub async fn list_gridfs_files(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<GridFsBucketRequest>,
+) -> Result<Json<Vec<dbx_core::document_ops::MongoGridFsFileInfo>>, AppError> {
+    let result =
+        dbx_core::document_ops::list_gridfs_files_core(&state.app, &req.connection_id, &req.database, &req.bucket)
+            .await
+            .map_err(AppError)?;
+    Ok(Json(result))
+}
+
+pub async fn download_gridfs_file(
+    State(state): State<Arc<WebState>>,
+    Json(req): Json<GridFsDownloadRequest>,
+) -> Result<Json<Vec<u8>>, AppError> {
+    let result = dbx_core::document_ops::download_gridfs_file_core(
+        &state.app,
+        &req.connection_id,
+        &req.database,
+        &req.bucket,
+        &req.file_id,
     )
     .await
     .map_err(AppError)?;

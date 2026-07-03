@@ -1865,18 +1865,41 @@ export const useConnectionStore = defineStore("connection", () => {
     node.isLoading = true;
     try {
       const collections = await api.mongoListCollections(connectionId, database);
-      const names = collections.map((c) => c.name);
-      setChildren(
-        node,
-        sortSidebarNames(names).map((col) => ({
-          id: `${nodeId}:${col}`,
-          label: col,
-          type: "mongo-collection" as const,
-          connectionId,
-          database,
-          isExpanded: false,
-        })),
-      );
+      const bucketInfos = collections.filter((c) => c.kind === "bucket" && c.bucketName).map((c) => c.bucketName as string);
+      const collectionNames = collections.filter((c) => c.kind !== "bucket").map((c) => c.name);
+      const bucketChildren = sortSidebarNames(Array.from(new Set(bucketInfos))).map((bucketName) => ({
+        id: `${nodeId}:__bucket:${bucketName}`,
+        label: bucketName,
+        type: "mongo-bucket" as const,
+        connectionId,
+        database,
+        isExpanded: false,
+      }));
+      const collectionChildren = sortSidebarNames(collectionNames).map((col) => ({
+        id: `${nodeId}:${col}`,
+        label: col,
+        type: "mongo-collection" as const,
+        connectionId,
+        database,
+        isExpanded: false,
+      }));
+      const children = [
+        ...(bucketChildren.length
+          ? [
+              {
+                id: `${nodeId}:__buckets`,
+                label: i18n.global.t("tree.buckets"),
+                type: "mongo-buckets" as const,
+                connectionId,
+                database,
+                isExpanded: true,
+                children: bucketChildren,
+              },
+            ]
+          : []),
+        ...collectionChildren,
+      ];
+      setChildren(node, children);
       node.isExpanded = true;
     } catch (e) {
       recordMetadataLoadError(connectionId, e);
@@ -2646,6 +2669,8 @@ export const useConnectionStore = defineStore("connection", () => {
       await loadMongoCollections(node.connectionId, node.database);
     } else if (node.type === "mongo-collection" && node.connectionId && node.database) {
       await loadTableGroups(node.connectionId, node.database, node.label, node.schema, node.id);
+    } else if (node.type === "mongo-buckets") {
+      node.isExpanded = true;
     } else if (node.type === "database" && node.connectionId && hasTreeNodeDatabaseContext(node)) {
       const config = getConfig(node.connectionId);
       const effectiveDbType = effectiveDatabaseTypeForConnection(config);

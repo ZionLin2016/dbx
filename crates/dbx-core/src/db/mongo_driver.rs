@@ -1,13 +1,14 @@
 use mongodb::{
     bson::{doc, oid::ObjectId, Bson, DateTime, Document},
-    options::{ClientOptions, IndexOptions},
+    options::{ClientOptions, GridFsBucketOptions, IndexOptions},
     Client, IndexModel,
 };
 use serde::{Deserialize, Serialize};
 
 use super::with_connection_timeout;
+use crate::document_ops::MongoGridFsFileInfo;
 use crate::types::IndexInfo;
-use futures::TryStreamExt;
+use futures::{io::AsyncReadExt, TryStreamExt};
 use percent_encoding::percent_decode_str;
 use std::{collections::HashSet, time::Duration};
 
@@ -141,6 +142,85 @@ pub async fn list_databases(client: &Client) -> Result<Vec<String>, String> {
 
 pub async fn list_collections(client: &Client, database: &str) -> Result<Vec<String>, String> {
     client.database(database).list_collection_names().await.map_err(|e| e.to_string())
+}
+
+pub async fn list_gridfs_files(
+    client: &Client,
+    database: &str,
+    bucket: &str,
+) -> Result<Vec<MongoGridFsFileInfo>, String> {
+    let collection_name = format!("{bucket}.files");
+    let collection = client.database(database).collection::<Document>(&collection_name);
+    let mut cursor =
+        collection.find(doc! {}).sort(doc! { "uploadDate": -1_i32, "_id": -1_i32 }).await.map_err(|e| e.to_string())?;
+    let mut files = Vec::new();
+    while cursor.advance().await.map_err(|e| e.to_string())? {
+        let doc = cursor.deserialize_current().map_err(|e| e.to_string())?;
+        let id = gridfs_file_id_to_string(doc.get("_id").unwrap_or(&Bson::Null));
+        let filename = doc.get_str("filename").ok().map(str::to_string);
+        let length = doc.get_i64("length").or_else(|_| doc.get_i32("length").map(i64::from)).unwrap_or(0);
+        let chunk_size =
+            doc.get_i32("chunkSize").or_else(|_| doc.get_i64("chunkSize").map(|value| value as i32)).unwrap_or(0);
+        let upload_date = doc.get_datetime("uploadDate").ok().map(gridfs_upload_date_to_string);
+        let metadata =
+            doc.get_document("metadata").ok().map(|value| Bson::Document(value.clone()).into_relaxed_extjson());
+        files.push(MongoGridFsFileInfo { id, filename, length, chunk_size, upload_date, metadata });
+    }
+    Ok(files)
+}
+
+pub async fn download_gridfs_file(
+    client: &Client,
+    database: &str,
+    bucket: &str,
+    file_id: &str,
+) -> Result<Vec<u8>, String> {
+    let trimmed = file_id.trim();
+    if trimmed.is_empty() {
+        return Err("GridFS file id is required".to_string());
+    }
+
+    let bson_id = parse_gridfs_file_id(trimmed)?;
+
+    let files_collection = client.database(database).collection::<Document>(&format!("{bucket}.files"));
+    let file_doc = files_collection
+        .find_one(doc! { "_id": bson_id.clone() })
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "GridFS file not found".to_string())?;
+    let bucket =
+        client.database(database).gridfs_bucket(GridFsBucketOptions::builder().bucket_name(bucket.to_string()).build());
+    let mut stream = bucket
+        .open_download_stream(file_doc.get("_id").cloned().unwrap_or(bson_id))
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut bytes = Vec::new();
+    stream.read_to_end(&mut bytes).await.map_err(|e| e.to_string())?;
+    Ok(bytes)
+}
+
+fn gridfs_file_id_to_string(id: &Bson) -> String {
+    match id {
+        Bson::ObjectId(value) => value.to_hex(),
+        Bson::String(value) => value.clone(),
+        _ => id.clone().into_relaxed_extjson().to_string(),
+    }
+}
+
+fn gridfs_upload_date_to_string(value: &DateTime) -> String {
+    value.try_to_rfc3339_string().unwrap_or_else(|_| value.timestamp_millis().to_string())
+}
+
+fn parse_gridfs_file_id(file_id: &str) -> Result<Bson, String> {
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(file_id) {
+        return Bson::try_from(value).map_err(|e| format!("Invalid GridFS file id: {e}"));
+    }
+
+    if let Ok(object_id) = ObjectId::parse_str(file_id) {
+        return Ok(Bson::ObjectId(object_id));
+    }
+
+    Ok(Bson::String(file_id.to_string()))
 }
 
 pub async fn create_database(client: &Client, database: &str) -> Result<(), String> {
@@ -1234,6 +1314,27 @@ mod tests {
         assert!(matches!(doc.get("_id"), Some(Bson::ObjectId(oid)) if oid.to_hex() == "507f1f77bcf86cd799439011"));
         assert!(matches!(doc.get("created_at"), Some(Bson::DateTime(_))));
         assert!(matches!(doc.get("count"), Some(Bson::Int64(42))));
+    }
+
+    #[test]
+    fn parse_gridfs_file_id_accepts_extended_json_object_id() {
+        let id = parse_gridfs_file_id(r#"{"$oid":"507f1f77bcf86cd799439011"}"#).unwrap();
+
+        assert!(matches!(id, Bson::ObjectId(oid) if oid.to_hex() == "507f1f77bcf86cd799439011"));
+    }
+
+    #[test]
+    fn parse_gridfs_file_id_accepts_json_string_ids() {
+        let id = parse_gridfs_file_id(r#""report-42""#).unwrap();
+
+        assert!(matches!(id, Bson::String(value) if value == "report-42"));
+    }
+
+    #[test]
+    fn gridfs_file_id_to_string_keeps_plain_strings_unquoted() {
+        let id = gridfs_file_id_to_string(&Bson::String("report-42".to_string()));
+
+        assert_eq!(id, "report-42");
     }
 
     #[test]

@@ -21,6 +21,12 @@ export function sortSidebarTreeChildrenForParent(parent: Pick<TreeNode, "type">,
   const normalized = children.map((child) => sortRecursive(child, databaseType));
 
   if (parent.type === "mongo-db") {
+    const bucketGroups = normalized.filter((child) => child.type === "mongo-buckets");
+    const collections = normalized.filter((child) => child.type !== "mongo-buckets");
+    return [...bucketGroups, ...sortByLabel(collections)];
+  }
+
+  if (parent.type === "mongo-buckets") {
     return sortByLabel(normalized);
   }
 

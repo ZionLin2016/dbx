@@ -88,6 +88,7 @@ import type {
   BuildExplainSqlOptions,
   ExplainSqlBuildResult,
   DroppedFilePreviewSqlOptions,
+  MongoGridFsFileInfo,
 } from "./tauri";
 import type { QueryEditability } from "@/lib/sqlAnalysis";
 import type {
@@ -1794,6 +1795,21 @@ export async function mongoFindDocuments(connectionId: string, database: string,
 
 export async function documentFindDocuments(connectionId: string, database: string, collection: string, skip: number, limit: number, filter?: string, projection?: string, sort?: string, executionId?: string): Promise<MongoDocumentResult> {
   return post("/api/document-store/find-documents", { connectionId, database, collection, skip, limit, filter, projection, sort, executionId });
+}
+
+export async function documentListGridFsFiles(connectionId: string, database: string, bucket: string): Promise<MongoGridFsFileInfo[]> {
+  return post("/api/document-store/list-gridfs-files", { connectionId, database, bucket });
+}
+
+export async function documentDownloadGridFsFile(connectionId: string, database: string, bucket: string, fileId: string): Promise<Uint8Array> {
+  const res = await fetch(apiUrl("/api/document-store/download-gridfs-file"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connectionId, database, bucket, fileId }),
+  });
+  if (!res.ok) throw new Error(await res.text());
+  const data = (await res.json()) as number[];
+  return new Uint8Array(data);
 }
 
 export async function mongoServerVersion(connectionId: string, database: string, executionId?: string): Promise<string> {

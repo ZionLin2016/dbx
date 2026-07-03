@@ -1476,6 +1476,7 @@ export default {
     functions: "Functions",
     sequences: "Sequences",
     packages: "Packages",
+    buckets: "Buckets",
     partitions: "Partitions",
     loadMore: "Load more...",
     objectBrowser: "Browse in Object Browser ({count})",

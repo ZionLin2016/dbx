@@ -129,3 +129,24 @@ pub async fn document_delete_document(
     )
     .await
 }
+
+#[tauri::command]
+pub async fn document_list_gridfs_files(
+    state: State<'_, Arc<AppState>>,
+    connection_id: String,
+    database: String,
+    bucket: String,
+) -> Result<Vec<dbx_core::document_ops::MongoGridFsFileInfo>, String> {
+    dbx_core::document_ops::list_gridfs_files_core(&state, &connection_id, &database, &bucket).await
+}
+
+#[tauri::command]
+pub async fn document_download_gridfs_file(
+    state: State<'_, Arc<AppState>>,
+    connection_id: String,
+    database: String,
+    bucket: String,
+    file_id: String,
+) -> Result<Vec<u8>, String> {
+    dbx_core::document_ops::download_gridfs_file_core(&state, &connection_id, &database, &bucket, &file_id).await
+}

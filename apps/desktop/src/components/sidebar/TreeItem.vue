@@ -55,6 +55,7 @@ import {
   SquarePen,
   ListX,
   Info,
+  Archive,
 } from "@lucide/vue";
 import CustomContextMenu, { type ContextMenuItem } from "@/components/ui/CustomContextMenu.vue";
 import { useConnectionStore } from "@/stores/connectionStore";
@@ -315,6 +316,10 @@ function getIconInfo(node: TreeNode): { icon: any; colorClass: string } | null {
       return { icon: Database, colorClass: "text-blue-500" };
     case "mongo-db":
       return { icon: Database, colorClass: "text-yellow-500" };
+    case "mongo-buckets":
+      return { icon: Archive, colorClass: "text-amber-500" };
+    case "mongo-bucket":
+      return { icon: Archive, colorClass: "text-amber-400" };
     case "mongo-collection":
       return { icon: Table, colorClass: "text-green-400" };
     case "vector-collection":
@@ -914,7 +919,7 @@ function onDoubleClick() {
     void viewObjectSource();
   } else if (action === "open-saved-sql") {
     openSavedSqlFile();
-  } else if (action === "toggle" && props.node.type === "mongo-collection") {
+  } else if (action === "toggle" && (props.node.type === "mongo-collection" || props.node.type === "mongo-bucket")) {
     openMongoCollectionData(props.node);
   } else if (action === "toggle") {
     toggle();
@@ -922,8 +927,13 @@ function onDoubleClick() {
 }
 
 function openMongoCollectionData(node: TreeNode) {
-  if (node.type !== "mongo-collection" || !node.connectionId || !node.database) return;
+  if (!node.connectionId || !node.database) return;
   const tabTitle = `${node.database}.${node.label}`;
+  if (node.type === "mongo-bucket") {
+    queryStore.openMongoBucket(node.connectionId, node.database, node.label);
+    return;
+  }
+  if (node.type !== "mongo-collection") return;
   const tab = queryStore.createTab(node.connectionId, node.database, tabTitle, "mongo");
   queryStore.updateSql(tab, node.label);
 }
