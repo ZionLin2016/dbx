@@ -77,7 +77,7 @@ import { clearActiveTableReferencePayload, createTableReferencePayload, createTa
 import { editableRowIdentifierColumns, usesSyntheticRowIdKey } from "@/lib/tableEditing";
 import { tableOpenPageLimit } from "@/lib/tableOpenPageLimit";
 import { supportsDatabaseCreation, supportsDatabaseSearch, supportsFieldLineage, supportsObjectBrowserTreeNode, supportsSchemaDiagram, supportsSqlFileExecution, supportsTableImport, supportsTableTruncate, supportsTableStructureEditing, usesTreeSchemaMode } from "@/lib/databaseCapabilities";
-import { copyNameForTreeNode, isDocumentBrowserTreeNode, objectSourceKindForTreeNode, sidebarSelectionCopyAction, treeNodeRowAction, treeNodeRowDoubleClickAction } from "@/lib/treeNodeClick";
+import { copyNameForTreeNode, isDocumentBrowserTreeNode, objectSourceKindForTreeNode, shouldRunTreeNodeRowAction, sidebarSelectionCopyAction, treeNodeRowAction, treeNodeRowDoubleClickAction } from "@/lib/treeNodeClick";
 import { formatSqlInsert } from "@/lib/exportFormats";
 import { joinExportedDdls } from "@/lib/ddlExport";
 import { fetchTableDataForExport } from "@/lib/tableDataExport";
@@ -103,7 +103,7 @@ import {
   type TableAdminSqlOptions,
 } from "@/lib/dbAdminSql";
 import { buildRenameObjectSql, supportsObjectRename, type RenameableObjectType } from "@/lib/objectRenameSql";
-import { buildRoutineRenameObjectSourceStatements, supportsSourceBackedRoutineRename } from "@/lib/objectSourceEditor";
+import { buildEditableObjectSource, buildRoutineRenameObjectSourceStatements, supportsSourceBackedRoutineRename } from "@/lib/objectSourceEditor";
 import { buildViewDdl } from "@/lib/viewDdl";
 import { formatSqlForDisplay, sqlFormatDialectForDbType } from "@/lib/sqlFormatter";
 import DdlViewDialog from "@/components/objects/DdlViewDialog.vue";
@@ -116,7 +116,7 @@ import { defaultPasteTableMode, pasteTableModeCopiesData, supportsWholeRowTableD
 import { sidebarDisplayTableName } from "@/lib/sidebarTableNameDisplay";
 import { shouldMeasureSidebarLabelOverflow } from "@/lib/sidebarLabelTooltip";
 import { selectedTreeNodesInVisibleOrder as orderSelectedTreeNodes, treeSelectionRangeIdsByIndex, treeSelectionRangeIds } from "@/lib/sidebarTreeSelection";
-import { selectedConnectionDeleteTargets } from "@/lib/sidebarConnectionSelection";
+import { selectedConnectionDeleteTargets, selectedConnectionDuplicateTargets } from "@/lib/sidebarConnectionSelection";
 import { supportsDatabaseUserAdmin } from "@/lib/databaseUserAdmin";
 import { canCloseSidebarDatabaseConnection, isSidebarDatabaseOpened } from "@/lib/sidebarDatabaseOpenState";
 import { sidebarTreeContextKey } from "@/lib/sidebarTreeContext";
@@ -642,13 +642,15 @@ async function toggle() {
   }
 }
 
-function runRowClickAction() {
+function runRowClickAction(clickDetail: number) {
   const node = props.node;
   if (node.type === "load-more") {
+    if (clickDetail > 1) return;
     void loadMoreObjectGroupChildren();
     return;
   }
   if (node.type === "object-browser") {
+    if (clickDetail > 1) return;
     void openObjectBrowser();
     return;
   }
@@ -657,6 +659,7 @@ function runRowClickAction() {
     return;
   }
   const action = treeNodeRowAction(node.type, canExpand.value, settingsStore.editorSettings.sidebarActivation);
+  if (!shouldRunTreeNodeRowAction(action, clickDetail)) return;
   if (action === "open-data") {
     openData();
   } else if (isDocumentBrowserTreeNode(node.type)) {
@@ -688,6 +691,18 @@ async function loadAllObjectGroupChildren() {
   } catch (e: any) {
     toast(t("connection.connectFailed", { message: translateBackendError(t, e?.message || String(e)) }), 5000);
   }
+}
+
+function onToggleClick() {
+  selectSingleTreeNode(props.node);
+  rowRef.value?.focus({ preventScroll: true });
+  void toggle();
+}
+
+function onToggleMouseDown(event: MouseEvent) {
+  if (event.button !== 0) return;
+  selectSingleTreeNode(props.node);
+  rowRef.value?.focus({ preventScroll: true });
 }
 
 function visibleTreeNodes(): TreeNode[] {
@@ -759,8 +774,7 @@ function onClick(event: MouseEvent) {
   selectSingleTreeNode(props.node);
   rowRef.value?.focus({ preventScroll: true });
   if (settingsStore.editorSettings.sidebarActivation === "double") return;
-  if (event.detail > 1) return;
-  runRowClickAction();
+  runRowClickAction(event.detail);
 }
 
 function onTreeItemContextMenu(event: MouseEvent, openContextMenu: (event: MouseEvent) => void) {
@@ -1127,7 +1141,7 @@ async function openData() {
 
     const querySchema = connectionObjectTreeQuerySchema(config, node.database, tableSchema);
     const effectiveDbType = effectiveDatabaseTypeForConnection(config);
-    const limit = tableOpenPageLimit();
+    const limit = tableOpenPageLimit(settingsStore.editorSettings.pageSize);
     const refreshTableMetaInBackground = async () => {
       const metadataStartedAt = performance.now();
       console.info("[DBX][openData:metadata:start]", {
@@ -1449,6 +1463,15 @@ function connectionDeleteMenuLabel(): string {
   return count > 1 ? t("contextMenu.deleteSelectedConnections", { count }) : t("contextMenu.deleteConnection");
 }
 
+function connectionDuplicateTargets() {
+  return selectedConnectionDuplicateTargets(props.node, selectedTreeNodesInVisibleOrder());
+}
+
+function connectionDuplicateMenuLabel(): string {
+  const count = connectionDuplicateTargets().length;
+  return count > 1 ? t("contextMenu.duplicateSelectedConnections", { count }) : t("contextMenu.duplicateConnection");
+}
+
 function connectionDeleteConfirmMessage(): string {
   const targets = connectionDeleteTargets();
   return targets.length > 1 ? t("contextMenu.confirmDeleteSelectedMessage", { count: targets.length }) : t("contextMenu.confirmDeleteMessage", { name: props.node.label });
@@ -1530,13 +1553,18 @@ function updateTreeClipboardForNodes(nodes: TreeNode[]) {
 }
 
 async function duplicateConnection() {
-  const connId = props.node.connectionId;
-  if (!connId) return;
-  const config = connectionStore.getConfig(connId);
-  if (!config) return;
-  const newConfig = { ...config, id: uuid(), name: `${config.name} (Copy)` };
-  await connectionStore.addConnection(newConfig, connectionStore.groupIdForConnection(connId));
-  toast(t("connection.duplicated"), 2000);
+  const targets = connectionDuplicateTargets();
+  if (!targets.length) return;
+  let duplicatedCount = 0;
+  for (const target of targets) {
+    const config = connectionStore.getConfig(target.connectionId);
+    if (!config) continue;
+    const newConfig = { ...config, id: uuid(), name: `${config.name} (Copy)` };
+    await connectionStore.addConnection(newConfig, connectionStore.groupIdForConnection(target.connectionId));
+    duplicatedCount += 1;
+  }
+  if (!duplicatedCount) return;
+  toast(duplicatedCount > 1 ? t("connection.duplicatedSelected", { count: duplicatedCount }) : t("connection.duplicated"), 2000);
 }
 
 // --- Table Management Operations ---
@@ -1756,9 +1784,17 @@ function viewObjectSource() {
       return api.getObjectSource(node.connectionId!, node.database!, schema, node.label, objectType as any);
     })
     .then(async (result) => {
+      const databaseType = currentDatabaseType();
+      if (!databaseType) throw new Error("Connection type is unavailable.");
       const tabId = queryStore.createTab(node.connectionId!, node.database!, `Source - ${node.label}`);
-      const formatted = await formatSqlForDisplay(result.source, sqlFormatDialectForDbType(currentDatabaseType()), settingsStore.editorSettings.sqlFormatter);
-      queryStore.updateSql(tabId, formatted);
+      const editable = await buildEditableObjectSource({
+        databaseType,
+        objectType,
+        schema,
+        name: node.label,
+        source: result.source,
+      });
+      queryStore.updateSql(tabId, editable);
       if (objectType !== "SEQUENCE") {
         queryStore.setObjectSource(tabId, {
           schema,
@@ -3406,6 +3442,16 @@ function openDatabaseExport() {
   };
 }
 
+function openAllDatabasesExport() {
+  const node = props.node;
+  if (node.type !== "connection" || !node.connectionId) return;
+  connectionStore.databaseExportSource = {
+    connectionId: node.connectionId,
+    database: "",
+    allDatabases: true,
+  };
+}
+
 function openTableImport() {
   const node = props.node;
   if (node.type !== "table" || !node.connectionId || !node.database) return;
@@ -3445,6 +3491,11 @@ const canExpand = computed(() =>
 const canPin = computed(() => canTreeNodePin(props.node.type));
 const canOpenSqlFileExecution = computed(() => {
   return supportsSqlFileExecution(rawDatabaseType());
+});
+const canExportAllDatabases = computed(() => {
+  if (props.node.type !== "connection" || !props.node.connectionId) return false;
+  const dbType = connectionStore.getConfig(props.node.connectionId)?.db_type;
+  return !["redis", "mongodb", "elasticsearch", "qdrant", "milvus", "weaviate", "chromadb", "etcd", "zookeeper", "mq", "nacos"].includes(dbType || "");
 });
 const canOpenDiagram = computed(() => {
   return !!props.node.database && supportsSchemaDiagram(currentDatabaseType());
@@ -3832,7 +3883,7 @@ const shortcutDelete = "Delete";
 function exportDataSubmenu(): ContextMenuItem {
   return {
     label: t("contextMenu.exportData"),
-    icon: Upload,
+    icon: Download,
     children: [
       { label: "CSV", action: () => exportData("csv") },
       { label: "JSON", action: () => exportData("json") },
@@ -3954,6 +4005,9 @@ function treeItemMenuItems(): ContextMenuItem[] {
     if (canOpenSqlFileExecution.value) {
       items.push({ label: t("sqlFile.title"), action: openSqlFileExecution, icon: FileCode });
     }
+    if (canExportAllDatabases.value) {
+      items.push({ label: t("contextMenu.exportAllDatabases"), action: openAllDatabasesExport, icon: Upload });
+    }
     if (canCreateDatabase.value) {
       items.push({
         label: isDuckDbConnection.value ? t("contextMenu.createDuckDbFile") : t("contextMenu.createDatabase"),
@@ -4027,7 +4081,7 @@ function treeItemMenuItems(): ContextMenuItem[] {
         icon: HardDriveDownload,
       });
     }
-    items.push({ label: t("contextMenu.duplicateConnection"), action: duplicateConnection, icon: CopyPlus });
+    items.push({ label: connectionDuplicateMenuLabel(), action: duplicateConnection, icon: CopyPlus });
     items.push({ label: "", separator: true });
     items.push({
       label: connectionDeleteMenuLabel(),
@@ -4119,7 +4173,7 @@ function treeItemMenuItems(): ContextMenuItem[] {
     items.push({ label: t("transfer.dataTransfer"), action: openTransfer, icon: ArrowRightLeft });
     items.push({ label: t("diff.title"), action: openSchemaDiff, icon: ArrowRightLeft });
     items.push({ label: t("dataCompare.title"), action: openDataCompare, icon: ArrowRightLeft });
-    items.push({ label: t("contextMenu.exportDatabase"), action: openDatabaseExport, icon: Upload });
+    items.push({ label: t("contextMenu.exportDatabase"), action: openDatabaseExport, icon: Download });
     const destructiveActions: ContextMenuItem[] = [];
     if (canDropDatabase.value) {
       destructiveActions.push({
@@ -4296,14 +4350,14 @@ function treeItemMenuItems(): ContextMenuItem[] {
       items.push({ label: t("diagram.open"), action: openDiagram, icon: Network });
     }
     if (canOpenTableImport.value) {
-      items.push({ label: t("contextMenu.importData"), action: openTableImport, icon: Download });
+      items.push({ label: t("contextMenu.importData"), action: openTableImport, icon: Upload });
     }
     if (isTableNotView.value) {
       items.push({ label: t("dataCompare.title"), action: openDataCompare, icon: ArrowRightLeft });
     }
     items.push({ label: "", separator: true });
     items.push(exportDataSubmenu());
-    items.push({ label: t("contextMenu.exportDatabase"), action: openDatabaseExport, icon: Upload });
+    items.push({ label: t("contextMenu.exportDatabase"), action: openDatabaseExport, icon: Download });
     items.push({ label: t("contextMenu.exportStructure"), action: exportStructure, icon: FileCode });
     items.push(copyStructureAsSubmenu());
     if (isTableNotView.value) {
@@ -4506,7 +4560,7 @@ function treeItemMenuItems(): ContextMenuItem[] {
           <div v-if="showDropBefore" class="absolute right-2 top-0 h-0.5 bg-primary rounded-full pointer-events-none" :style="{ left: paddingLeft }" />
           <div v-if="showDropAfter" class="absolute right-2 bottom-0 h-0.5 bg-primary rounded-full pointer-events-none" :style="{ left: paddingLeft }" />
           <template v-if="canExpand">
-            <button type="button" class="-m-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" @click.stop="toggle">
+            <button type="button" class="-m-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground" @mousedown.stop="onToggleMouseDown" @click.stop="onToggleClick">
               <Loader2 v-if="node.isLoading" class="w-3.5 h-3.5 animate-spin" />
               <ChevronDown v-else-if="node.isExpanded" class="w-3.5 h-3.5" />
               <ChevronRight v-else class="w-3.5 h-3.5" />
