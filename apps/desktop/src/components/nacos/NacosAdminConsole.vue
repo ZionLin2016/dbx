@@ -913,29 +913,21 @@ onBeforeUnmount(() => {
           <div class="min-h-0 flex-1 overflow-auto">
             <div class="min-w-max" :style="{ minWidth: configListMinWidth }">
               <div class="sticky top-0 z-20 grid border-b bg-muted px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground shadow-sm" :style="{ gridTemplateColumns: configListGridTemplate }">
-                <div class="relative min-w-0 overflow-visible border-r border-border/70 pr-4 last:border-r-0">
+                <div class="relative min-w-0 border-r border-border/70 pr-3 last:border-r-0">
                   <span class="block truncate">dataID</span>
-                  <div data-column-resize-handle class="absolute right-0 top-0 z-10 flex h-full w-3 translate-x-1/2 cursor-col-resize items-center justify-center" @mousedown="onConfigListColumnResizeStart(0, $event)">
-                    <span class="pointer-events-none absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-border/80" :class="configListResizingColumnIndex === 0 ? 'bg-primary' : ''" />
-                  </div>
+                  <div data-column-resize-handle class="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize" :class="configListResizingColumnIndex === 0 ? 'bg-primary/10' : ''" @mousedown="onConfigListColumnResizeStart(0, $event)" />
                 </div>
-                <div class="relative min-w-0 overflow-visible border-r border-border/70 pr-4 last:border-r-0">
+                <div class="relative min-w-0 border-r border-border/70 pr-3 last:border-r-0">
                   <span class="block truncate">{{ t("nacos.group") }}</span>
-                  <div data-column-resize-handle class="absolute right-0 top-0 z-10 flex h-full w-3 translate-x-1/2 cursor-col-resize items-center justify-center" @mousedown="onConfigListColumnResizeStart(1, $event)">
-                    <span class="pointer-events-none absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-border/80" :class="configListResizingColumnIndex === 1 ? 'bg-primary' : ''" />
-                  </div>
+                  <div data-column-resize-handle class="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize" :class="configListResizingColumnIndex === 1 ? 'bg-primary/10' : ''" @mousedown="onConfigListColumnResizeStart(1, $event)" />
                 </div>
-                <div class="relative min-w-0 overflow-visible border-r border-border/70 pr-4 last:border-r-0">
+                <div class="relative min-w-0 border-r border-border/70 pr-3 last:border-r-0">
                   <span class="block truncate">{{ t("nacos.application") }}</span>
-                  <div data-column-resize-handle class="absolute right-0 top-0 z-10 flex h-full w-3 translate-x-1/2 cursor-col-resize items-center justify-center" @mousedown="onConfigListColumnResizeStart(2, $event)">
-                    <span class="pointer-events-none absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-border/80" :class="configListResizingColumnIndex === 2 ? 'bg-primary' : ''" />
-                  </div>
+                  <div data-column-resize-handle class="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize" :class="configListResizingColumnIndex === 2 ? 'bg-primary/10' : ''" @mousedown="onConfigListColumnResizeStart(2, $event)" />
                 </div>
-                <div class="relative min-w-0 overflow-visible border-r border-border/70 pr-4 last:border-r-0">
+                <div class="relative min-w-0 border-r border-border/70 pr-3 last:border-r-0">
                   <span class="block truncate">{{ t("nacos.format") }}</span>
-                  <div data-column-resize-handle class="absolute right-0 top-0 z-10 flex h-full w-3 translate-x-1/2 cursor-col-resize items-center justify-center" @mousedown="onConfigListColumnResizeStart(3, $event)">
-                    <span class="pointer-events-none absolute left-1/2 top-1/2 h-4 w-px -translate-x-1/2 -translate-y-1/2 bg-border/80" :class="configListResizingColumnIndex === 3 ? 'bg-primary' : ''" />
-                  </div>
+                  <div data-column-resize-handle class="absolute -right-1 top-0 z-10 h-full w-2 cursor-col-resize" :class="configListResizingColumnIndex === 3 ? 'bg-primary/10' : ''" @mousedown="onConfigListColumnResizeStart(3, $event)" />
                 </div>
               </div>
               <button
