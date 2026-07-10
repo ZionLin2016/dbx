@@ -13,6 +13,7 @@ import EditorSearchPanel from "@/components/editor/EditorSearchPanel.vue";
 import NacosConfigDiffDialog from "@/components/nacos/NacosConfigDiffDialog.vue";
 import NacosConfigHistoryDialog from "@/components/nacos/NacosConfigHistoryDialog.vue";
 import { useToast } from "@/composables/useToast";
+import { useNacosConfigListColumnResize } from "@/composables/useNacosConfigListColumnResize";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useI18n } from "vue-i18n";
 import * as api from "@/lib/backend/api";
@@ -54,9 +55,6 @@ const configDataId = ref("");
 const configAppName = ref("");
 const configPageNo = ref(1);
 const configPageSize = ref(20);
-const configFormatColumnWidth = "96px";
-const configListGridTemplate = "minmax(280px,2.2fr) minmax(180px,1.2fr) minmax(180px,1.2fr) " + configFormatColumnWidth;
-const configListMinWidth = "736px";
 const configs = ref<NacosConfigItem[]>([]);
 const configTotal = ref(0);
 const selectedConfig = ref<NacosConfigItem | null>(null);
@@ -116,6 +114,7 @@ const NACOS_SPLIT_SIZE_KEY = "dbx-nacos-admin-split-size";
 const savedNacosSplitSize = Number(safeLocalStorageGet(NACOS_SPLIT_SIZE_KEY));
 const nacosSplitSize = ref(savedNacosSplitSize >= 20 && savedNacosSplitSize <= 80 ? savedNacosSplitSize : 42);
 const CONNECTION_NOT_FOUND_RETRY_DELAYS_MS = [150, 350, 700];
+const { gridTemplateColumns: configListGridTemplate, minWidth: configListMinWidth, resizingColumnIndex: configListResizingColumnIndex, onResizeStart: onConfigListColumnResizeStart } = useNacosConfigListColumnResize();
 
 const namespace = computed(() => props.namespace ?? connectionInfo.value?.namespace ?? "");
 const namespaceLabel = computed(() => props.namespaceName || namespace.value || "public");
@@ -914,10 +913,22 @@ onBeforeUnmount(() => {
           <div class="min-h-0 flex-1 overflow-auto">
             <div class="min-w-max" :style="{ minWidth: configListMinWidth }">
               <div class="sticky top-0 z-20 grid border-b bg-muted px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground shadow-sm" :style="{ gridTemplateColumns: configListGridTemplate }">
-                <span class="truncate pr-3">dataID</span>
-                <span class="truncate pr-3">{{ t("nacos.group") }}</span>
-                <span class="truncate pr-3">{{ t("nacos.application") }}</span>
-                <span class="truncate">{{ t("nacos.format") }}</span>
+                <div class="relative min-w-0 truncate pr-4">
+                  <span class="truncate">dataID</span>
+                  <div data-column-resize-handle class="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" :class="configListResizingColumnIndex === 0 ? 'bg-primary/30' : ''" @mousedown="onConfigListColumnResizeStart(0, $event)" />
+                </div>
+                <div class="relative min-w-0 truncate pr-4">
+                  <span class="truncate">{{ t("nacos.group") }}</span>
+                  <div data-column-resize-handle class="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" :class="configListResizingColumnIndex === 1 ? 'bg-primary/30' : ''" @mousedown="onConfigListColumnResizeStart(1, $event)" />
+                </div>
+                <div class="relative min-w-0 truncate pr-4">
+                  <span class="truncate">{{ t("nacos.application") }}</span>
+                  <div data-column-resize-handle class="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" :class="configListResizingColumnIndex === 2 ? 'bg-primary/30' : ''" @mousedown="onConfigListColumnResizeStart(2, $event)" />
+                </div>
+                <div class="relative min-w-0 truncate pr-4">
+                  <span class="truncate">{{ t("nacos.format") }}</span>
+                  <div data-column-resize-handle class="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-primary/30" :class="configListResizingColumnIndex === 3 ? 'bg-primary/30' : ''" @mousedown="onConfigListColumnResizeStart(3, $event)" />
+                </div>
               </div>
               <button
                 v-for="item in configs"
